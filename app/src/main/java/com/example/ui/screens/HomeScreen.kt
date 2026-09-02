@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.TransactionEntity
+import com.example.data.local.entity.UserEntity
 import com.example.ui.model.Categories
 import com.example.ui.theme.SophisticatedBorder
 import com.example.ui.theme.SophisticatedExpense
@@ -68,11 +69,14 @@ import com.example.ui.viewmodel.FinanceTotals
 fun HomeScreen(
     totals: FinanceTotals,
     transactions: List<TransactionEntity>,
+    currentUser: UserEntity?,
+    isLoggedIn: Boolean,
     selectedFilter: String,
     seeAll: Boolean,
     onFilterSelect: (String) -> Unit,
     onSeeAllClick: () -> Unit,
     onDeleteTransaction: (Long) -> Unit,
+    onProfileClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Unique categories used in transactions
@@ -88,6 +92,9 @@ fun HomeScreen(
         }
         if (seeAll) list else list.take(6)
     }
+
+    val displayName = if (isLoggedIn && currentUser != null) currentUser.name else "Guest"
+    val avatarInitial = displayName.take(1).uppercase()
 
     LazyColumn(
         modifier = modifier
@@ -115,27 +122,35 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Jay",
+                        text = displayName,
                         color = SophisticatedTextPrimary,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                // Avatar Pill Badge
+                // Interactive Avatar Pill Badge with Glow & Click Action
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(46.dp)
+                        .shadow(
+                            elevation = 8.dp,
+                            shape = CircleShape,
+                            ambientColor = SophisticatedPrimary.copy(alpha = 0.35f),
+                            spotColor = SophisticatedPrimary.copy(alpha = 0.35f)
+                        )
                         .clip(CircleShape)
                         .background(
                             brush = Brush.linearGradient(
                                 colors = listOf(SophisticatedPrimary, SophisticatedPrimaryDark)
                             )
-                        ),
+                        )
+                        .clickable { onProfileClick() }
+                        .testTag("profile_avatar_badge"),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "J",
+                        text = avatarInitial,
                         color = SophisticatedOnPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold

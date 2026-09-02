@@ -30,9 +30,12 @@ class GreetingScreenshotTest {
           transactions = emptyList(),
           selectedFilter = "All",
           seeAll = false,
+          currentUser = null,
+          isLoggedIn = false,
           onFilterSelect = {},
           onSeeAllClick = {},
-          onDeleteTransaction = {}
+          onDeleteTransaction = {},
+          onProfileClick = {}
         )
       }
     }

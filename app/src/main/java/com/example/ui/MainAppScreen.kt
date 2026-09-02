@@ -25,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.AddTransactionSheet
+import com.example.ui.components.AuthModal
+import com.example.ui.components.AuthMode
+import com.example.ui.components.ProfileSheet
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.InvestmentsScreen
 import com.example.ui.screens.StatsScreen
@@ -75,9 +80,25 @@ fun MainAppScreen(
     val stocks by viewModel.stocks.collectAsStateWithLifecycle()
     val investmentsByStock by viewModel.investmentsByStock.collectAsStateWithLifecycle()
 
+    // Auth States
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
+    val hasLaunchedBefore by viewModel.hasLaunchedBefore.collectAsStateWithLifecycle()
+    val showAuthModal by viewModel.showAuthModal.collectAsStateWithLifecycle()
+    val authInitialMode by viewModel.authInitialMode.collectAsStateWithLifecycle()
+    val isAuthModalDismissable by viewModel.isAuthModalDismissable.collectAsStateWithLifecycle()
+    val showProfileSheet by viewModel.showProfileSheet.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+    val isAuthLoading by viewModel.isAuthLoading.collectAsStateWithLifecycle()
+    val authErrorMessage by viewModel.authErrorMessage.collectAsStateWithLifecycle()
+    val authSuccessMessage by viewModel.authSuccessMessage.collectAsStateWithLifecycle()
+
     var showAddSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val profileSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
+
+
 
     val navItems = remember {
         listOf(
@@ -87,11 +108,32 @@ fun MainAppScreen(
         )
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(SophisticatedBg)
-    ) {
+    Crossfade(
+        targetState = isLoggedIn,
+        animationSpec = tween(300),
+        label = "auth_gate_crossfade"
+    ) { loggedIn ->
+        if (!loggedIn) {
+            AuthScreen(
+                initialMode = authInitialMode,
+                savedEmail = viewModel.savedUserEmail,
+                isLoading = isAuthLoading,
+                errorMessage = authErrorMessage,
+                successMessage = authSuccessMessage,
+                onLogin = { email, pass -> viewModel.login(email, pass) },
+                onRegister = { name, email, pass, confirmPass ->
+                    viewModel.register(name, email, pass, confirmPass)
+                },
+                onResetPassword = { email, newPass, confirmPass ->
+                    viewModel.resetPassword(email, newPass, confirmPass)
+                }
+            )
+        } else {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(SophisticatedBg)
+            ) {
         // Main Screen Content with status bar padding
         Box(
             modifier = Modifier
@@ -107,11 +149,14 @@ fun MainAppScreen(
                     "home" -> HomeScreen(
                         totals = totals,
                         transactions = transactions,
+                        currentUser = currentUser,
+                        isLoggedIn = isLoggedIn,
                         selectedFilter = selectedFilter,
                         seeAll = seeAll,
                         onFilterSelect = { viewModel.setFilter(it) },
                         onSeeAllClick = { viewModel.toggleSeeAll() },
-                        onDeleteTransaction = { viewModel.deleteTransaction(it) }
+                        onDeleteTransaction = { viewModel.deleteTransaction(it) },
+                        onProfileClick = { viewModel.openProfileSheet() }
                     )
                     "stats" -> StatsScreen(
                         totals = totals,
@@ -249,6 +294,70 @@ fun MainAppScreen(
                 }
             }
         )
+    }
+
+    // Profile Menu Bottom Sheet
+    if (showProfileSheet) {
+        ProfileSheet(
+            sheetState = profileSheetState,
+            currentUser = currentUser,
+            isLoggedIn = isLoggedIn,
+            isSyncing = isSyncing,
+            isSupabaseConfigured = viewModel.isSupabaseConfigured,
+            onSyncClick = { viewModel.syncData() },
+            onDismiss = {
+                coroutineScope.launch {
+                    profileSheetState.hide()
+                    viewModel.closeProfileSheet()
+                }
+            },
+            onLogoutClick = {
+                coroutineScope.launch {
+                    profileSheetState.hide()
+                    viewModel.logout()
+                }
+            },
+            onLoginClick = {
+                coroutineScope.launch {
+                    profileSheetState.hide()
+                    viewModel.closeProfileSheet()
+                    viewModel.openAuthModal(initialMode = AuthMode.LOGIN, isDismissable = true)
+                }
+            },
+            onResetPasswordClick = {
+                coroutineScope.launch {
+                    profileSheetState.hide()
+                    viewModel.closeProfileSheet()
+                    viewModel.openAuthModal(initialMode = AuthMode.FORGOT_PASSWORD, isDismissable = true)
+                }
+            },
+            onClearDataClick = {
+                viewModel.clearAllData()
+            }
+        )
+    }
+
+            // Authentication Modal (if opened while logged in)
+            if (showAuthModal) {
+                AuthModal(
+                    initialMode = authInitialMode,
+                    isDismissable = isAuthModalDismissable,
+                    isLoading = isAuthLoading,
+                    errorMessage = authErrorMessage,
+                    successMessage = authSuccessMessage,
+                    onDismiss = { viewModel.closeAuthModal() },
+                    onLogin = { email, pass ->
+                        viewModel.login(email, pass)
+                    },
+                    onRegister = { name, email, pass, confirmPass ->
+                        viewModel.register(name, email, pass, confirmPass)
+                    },
+                    onResetPassword = { email, newPass, confirmPass ->
+                        viewModel.resetPassword(email, newPass, confirmPass)
+                    }
+                )
+            }
+        }
     }
 }
 

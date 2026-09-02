@@ -15,6 +15,12 @@ interface InvestmentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertInvestment(investment: InvestmentEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertInvestments(investments: List<InvestmentEntity>)
+
     @Query("DELETE FROM investments WHERE id = :id")
     suspend fun deleteInvestment(id: Long)
+
+    @Query("DELETE FROM investments")
+    suspend fun deleteAllInvestments()
 }

@@ -7,7 +7,11 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.entity.InvestmentEntity
 import com.example.data.local.entity.StockEntity
 import com.example.data.local.entity.TransactionEntity
+import com.example.data.local.entity.UserEntity
+import com.example.data.repository.AuthRepository
+import com.example.data.repository.AuthResult
 import com.example.data.repository.FinanceRepository
+import com.example.ui.components.AuthMode
 import com.example.ui.util.FinanceFormatters
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,14 +49,54 @@ data class FinanceTotals(
 
 class FinanceViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: FinanceRepository
+    val authRepository: AuthRepository
 
     init {
         val db = AppDatabase.getDatabase(application)
         repository = FinanceRepository(db.transactionDao(), db.investmentDao(), db.stockDao())
+        authRepository = AuthRepository(db.userDao(), application)
 
-        // Seed initial mock transactions & investments if database is fresh
-        seedInitialDataIfNeeded()
+        // Clear any old sample starter data so the user starts fresh with their actual data
+        viewModelScope.launch {
+            val prefs = application.getSharedPreferences("finance_cleanup_prefs", Application.MODE_PRIVATE)
+            val cleanedSampleData = prefs.getBoolean("sample_data_cleared_v1", false)
+            if (!cleanedSampleData) {
+                repository.clearAllLocalTransactionsAndInvestments()
+                prefs.edit().putBoolean("sample_data_cleared_v1", true).apply()
+            }
+            // Sync with Supabase on startup
+            repository.syncWithSupabase()
+        }
     }
+
+    val isSyncing: StateFlow<Boolean> = repository.isSyncing
+    val isSupabaseConfigured: Boolean get() = repository.isSupabaseConfigured
+
+    val currentUser: StateFlow<UserEntity?> = authRepository.currentUser
+    val isLoggedIn: StateFlow<Boolean> = authRepository.isLoggedIn
+    val hasLaunchedBefore: StateFlow<Boolean> = authRepository.hasLaunchedBefore
+    val savedUserEmail: String? get() = authRepository.savedUserEmail
+
+    private val _showAuthModal = MutableStateFlow(false)
+    val showAuthModal: StateFlow<Boolean> = _showAuthModal.asStateFlow()
+
+    private val _authInitialMode = MutableStateFlow(AuthMode.LOGIN)
+    val authInitialMode: StateFlow<AuthMode> = _authInitialMode.asStateFlow()
+
+    private val _isAuthModalDismissable = MutableStateFlow(true)
+    val isAuthModalDismissable: StateFlow<Boolean> = _isAuthModalDismissable.asStateFlow()
+
+    private val _showProfileSheet = MutableStateFlow(false)
+    val showProfileSheet: StateFlow<Boolean> = _showProfileSheet.asStateFlow()
+
+    private val _isAuthLoading = MutableStateFlow(false)
+    val isAuthLoading: StateFlow<Boolean> = _isAuthLoading.asStateFlow()
+
+    private val _authErrorMessage = MutableStateFlow<String?>(null)
+    val authErrorMessage: StateFlow<String?> = _authErrorMessage.asStateFlow()
+
+    private val _authSuccessMessage = MutableStateFlow<String?>(null)
+    val authSuccessMessage: StateFlow<String?> = _authSuccessMessage.asStateFlow()
 
     val transactions: StateFlow<List<TransactionEntity>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -204,47 +248,118 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun seedInitialDataIfNeeded() {
+    fun openAuthModal(initialMode: AuthMode = AuthMode.LOGIN, isDismissable: Boolean = true) {
+        _authInitialMode.value = initialMode
+        _isAuthModalDismissable.value = isDismissable
+        _authErrorMessage.value = null
+        _authSuccessMessage.value = null
+        _showAuthModal.value = true
+    }
+
+    fun closeAuthModal() {
+        _showAuthModal.value = false
+        _authErrorMessage.value = null
+        _authSuccessMessage.value = null
+    }
+
+    fun openProfileSheet() {
+        _showProfileSheet.value = true
+    }
+
+    fun closeProfileSheet() {
+        _showProfileSheet.value = false
+    }
+
+    fun clearAuthMessages() {
+        _authErrorMessage.value = null
+        _authSuccessMessage.value = null
+    }
+
+    fun login(email: String, pass: String, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            val initialStocks = listOf(
-                StockEntity("KO", "COCA-COLA"),
-                StockEntity("V", "VISA"),
-                StockEntity("SPGI", "S&P GLOBAL"),
-                StockEntity("TXRH", "TEXAS ROADHOUSE"),
-                StockEntity("NVDA", "NVIDIA"),
-                StockEntity("AAPL", "APPLE")
-            )
-            initialStocks.forEach { repository.addStock(it) }
+            _isAuthLoading.value = true
+            _authErrorMessage.value = null
+            _authSuccessMessage.value = null
 
-            // Add sample starter transactions if repository has none
-            // This ensures Jay's ledger looks stunning out of the box with real numbers
-            val today = FinanceFormatters.todayISO()
-            repository.addTransaction(
-                TransactionEntity(type = "income", amount = 18500.0, category = "Salary", note = "Monthly Salary", date = today)
-            )
-            repository.addTransaction(
-                TransactionEntity(type = "expense", amount = 420.0, category = "Food & Dining", note = "Dinner with friends", date = today)
-            )
-            repository.addTransaction(
-                TransactionEntity(type = "expense", amount = 150.0, category = "Transport", note = "Fuel refill", date = today)
-            )
-            repository.addTransaction(
-                TransactionEntity(type = "expense", amount = 85.0, category = "Entertainment", note = "Cinema tickets", date = today)
-            )
-            repository.addTransaction(
-                TransactionEntity(type = "income", amount = 1200.0, category = "Freelance", note = "Design consulting", date = today)
-            )
+            val result = authRepository.login(email, pass)
+            _isAuthLoading.value = false
+            when (result) {
+                is AuthResult.Success -> {
+                    _authSuccessMessage.value = result.message
+                    _showAuthModal.value = false
+                    repository.syncWithSupabase()
+                    onSuccess()
+                }
+                is AuthResult.Error -> {
+                    _authErrorMessage.value = result.message
+                }
+            }
+        }
+    }
 
-            // Add starter investment deposits
-            repository.addInvestment(
-                InvestmentEntity(stock = "KO", amount = 1500.0, date = today)
-            )
-            repository.addInvestment(
-                InvestmentEntity(stock = "V", amount = 2200.0, date = today)
-            )
-            repository.addInvestment(
-                InvestmentEntity(stock = "SPGI", amount = 1800.0, date = today)
-            )
+    fun register(name: String, email: String, pass: String, confirmPass: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authErrorMessage.value = null
+            _authSuccessMessage.value = null
+
+            val result = authRepository.register(name, email, pass, confirmPass)
+            _isAuthLoading.value = false
+            when (result) {
+                is AuthResult.Success -> {
+                    _authSuccessMessage.value = result.message
+                    _showAuthModal.value = false
+                    repository.syncWithSupabase()
+                    onSuccess()
+                }
+                is AuthResult.Error -> {
+                    _authErrorMessage.value = result.message
+                }
+            }
+        }
+    }
+
+    fun syncData() {
+        viewModelScope.launch {
+            repository.syncWithSupabase()
+        }
+    }
+
+    fun resetPassword(email: String, newPass: String, confirmPass: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            _isAuthLoading.value = true
+            _authErrorMessage.value = null
+            _authSuccessMessage.value = null
+
+            val result = authRepository.resetPassword(email, newPass, confirmPass)
+            _isAuthLoading.value = false
+            when (result) {
+                is AuthResult.Success -> {
+                    _authSuccessMessage.value = result.message
+                    onSuccess()
+                }
+                is AuthResult.Error -> {
+                    _authErrorMessage.value = result.message
+                }
+            }
+        }
+    }
+
+    fun lockSession() {
+        authRepository.lockSession()
+        _showProfileSheet.value = false
+        _showAuthModal.value = false
+    }
+
+    fun logout() {
+        authRepository.logout()
+        _showProfileSheet.value = false
+        _showAuthModal.value = false
+    }
+
+    fun clearAllData() {
+        viewModelScope.launch {
+            repository.clearAllLocalTransactionsAndInvestments()
         }
     }
 }
