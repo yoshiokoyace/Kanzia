@@ -1,0 +1,7 @@
+{
+  "name": "Finance Ledger",
+  "description": "Personal finance and investment tracker for managing daily transactions, monthly statistics, and stock deposit portfolios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
